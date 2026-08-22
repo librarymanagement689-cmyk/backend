@@ -6,6 +6,7 @@ from app.schemas.book import (
 from app.services.book_service import BookService
 from app.services.csv_import_service import CSVImportService
 from app.auth.dependencies import get_current_admin
+from app.services.book_service import BookService
 
 router = APIRouter(prefix="/api/admin/books", tags=["Admin Books"])
 
@@ -19,6 +20,8 @@ async def create_book(
 @router.get("", response_model=BookPaginatedResponse)
 async def get_books(
     search: Optional[str] = Query(None, description="Search title, author, or book_id"),
+    author: Optional[str] = Query(None, description="Filter by author"),
+    serial_number: Optional[str] = Query(None, description="Filter by library serial number"),
     category: Optional[str] = Query(None, description="Filter by category"),
     language: Optional[str] = Query(None, description="Filter by language"),
     status: Optional[str] = Query(None, description="available or borrowed"),
@@ -31,6 +34,8 @@ async def get_books(
 ):
     return await BookService.get_books(
         search=search,
+        serial_number=serial_number,
+        author=author,
         category=category,
         language=language,
         status=status,

@@ -15,6 +15,7 @@ class BookService:
         now = current_utc_datetime()
         book_doc = {
             "book_id": book_id,
+            "serial_number": data.serial_number,
             "title": data.title.strip(),
             "author": data.author.strip() if data.author else None,
             "price": float(data.price) if data.price is not None else None,
@@ -36,6 +37,8 @@ class BookService:
     @staticmethod
     async def get_books(
         search: Optional[str] = None,
+        serial_number: Optional[str] = None,
+        author: Optional[str] = None,
         category: Optional[str] = None,
         language: Optional[str] = None,
         status: Optional[str] = None,
@@ -51,8 +54,18 @@ class BookService:
         if search and search.strip():
             search_term = re.escape(search.strip())
             regex = {"$regex": search_term, "$options": "i"}
-            query["$or"] = [{"title": regex}, {"author": regex}, {"series_name": regex}, {"book_id": regex}]
+            query["$or"] = [{"title": regex}, {"author_alias": regex}, {"author": regex}, {"series_name": regex}, {"book_id": regex}]
 
+        if serial_number and serial_number.strip():
+            query["serial_number"] = serial_number.strip()
+        if author and author.strip():
+            author_term = re.escape(author.strip())
+            author_regex = {"$regex": author_term, "$options": "i"}
+
+            query["$or"] = [
+                {"author": author_regex},
+                {"author_alias": author_regex}
+    ]
         if category:
             query["category"] = category
 

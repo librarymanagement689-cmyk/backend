@@ -3,6 +3,7 @@ from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 
 class BookCreate(BaseModel):
+    serial_number: str
     title: str = Field(..., min_length=1)
     author: Optional[str] = None
     price: Optional[float] = Field(default=None, ge=0.0)
@@ -12,10 +13,11 @@ class BookCreate(BaseModel):
     series_name: Optional[str] = None
     volume_number: Optional[str] = None
     total_volumes: Optional[str] = None
-    publish_on_website: bool = False
+    publish_on_website: bool = True
     image_url: Optional[str] = None
 
 class BookUpdate(BaseModel):
+    serial_number: Optional[str] = None
     title: Optional[str] = None
     author: Optional[str] = None
     price: Optional[float] = Field(default=None, ge=0.0)
@@ -31,6 +33,7 @@ class BookUpdate(BaseModel):
 
 class BookResponse(BaseModel):
     book_id: str
+    serial_number: Optional[str] = None
     title: str
     author: Optional[str] = None
     price: Optional[float] = None

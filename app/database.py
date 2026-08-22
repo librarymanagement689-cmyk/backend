@@ -37,6 +37,10 @@ async def connect_to_mongo():
 
     await create_indexes()
 
+
+def get_categories_collection():
+    return get_database()["categories"]
+
 async def close_mongo_connection():
     if db_instance.client:
         db_instance.client.close()
@@ -55,6 +59,12 @@ async def create_indexes():
         await books_col.create_index("language")
         await books_col.create_index("status")
         await books_col.create_index("publish_on_website")
+
+        # Categories Indexes
+        categories_col = db_instance.db["categories"]
+        await categories_col.create_index("category_id", unique=True)
+        await categories_col.create_index("name", unique=True)
+        await categories_col.create_index("is_active")
 
         # Members Indexes
         members_col = db_instance.db["members"]

@@ -79,12 +79,16 @@ from app.routers import (
     members,
     subscriptions,
     orders,
-    reports
+    reports,
+    categories
 )
 
 app.include_router(auth.router)
 app.include_router(books.router)
 app.include_router(public_books.router)
+
+app.include_router(categories.public_router)
+app.include_router(categories.admin_router)
 app.include_router(members.router)
 app.include_router(subscriptions.router)
 app.include_router(orders.router)

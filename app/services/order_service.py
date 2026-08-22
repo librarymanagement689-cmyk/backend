@@ -1,3 +1,4 @@
+from app import database
 import math
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date, timedelta
@@ -30,38 +31,71 @@ class OrderService:
             raise HTTPException(status_code=400, detail="Due date cannot be before borrowed date")
 
         # 2. Verify and Snapshot Books
-        if not data.book_ids:
-            raise HTTPException(status_code=400, detail="At least one book must be selected for an order")
 
-        # Check duplicate book IDs in same order request
-        if len(data.book_ids) != len(set(data.book_ids)):
-            raise HTTPException(status_code=400, detail="Duplicate books detected in the order request")
+        if not data.items:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one book must be selected for an order"
+            )
+
+        # Get all book IDs from the request
+        book_ids = [item.book_id for item in data.items]
+
+        # Prevent the same book from being added twice
+        if len(book_ids) != len(set(book_ids)):
+            raise HTTPException(
+                status_code=400,
+                detail="Duplicate books detected in the order request"
+            )
 
         order_items = []
         subtotal = 0.0
 
-        for book_id in data.book_ids:
-            book = await books_col.find_one({"book_id": book_id})
-            if not book:
-                raise HTTPException(status_code=404, detail=f"Book {book_id} not found")
+        for requested_item in data.items:
 
+            book_id = requested_item.book_id
+
+            # This is the amount manually entered by the admin
+            lending_amount = float(requested_item.lending_amount)
+
+    # Get the actual book from MongoDB
+            book = await books_col.find_one({"book_id": book_id})
+
+            if not book:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Book {book_id} not found"
+                )
+
+            # Make sure the book is currently available
             if book.get("status") != "available":
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Book '{book.get('title')}' ({book_id}) is currently not available (Status: {book.get('status')})"
+                    detail=f"Book '{book.get('title')}' ({book_id}) is currently not available "
+                        f"(Status: {book.get('status')})"
                 )
 
-            current_price = float(book.get("price", 0.0))
-            subtotal += current_price
+            # This is the actual/master price stored on the book.
+            # We DO NOT use this to calculate the lending amount.
+            current_price = float(book.get("price") or 0.0)
 
-            # Snapshot title & price into order item
+            # Subtotal is based on the amount entered by the admin
+            subtotal += lending_amount
+
+            # Save both prices separately
             order_items.append({
                 "book_id": book.get("book_id"),
                 "title": book.get("title"),
+
+                # Actual price of the book
                 "price": current_price,
-                "returned": False,
-                "returned_date": None
-            })
+
+        # Amount charged for lending this book
+        "lending_amount": lending_amount,
+
+        "returned": False,
+        "returned_date": None
+    })
 
         # 3. Generate unique order_id & create order
         order_id = await generate_unique_id("order_id", "ORD", 5)
@@ -94,7 +128,7 @@ class OrderService:
 
         # 4. Change book status from available -> borrowed
         await books_col.update_many(
-            {"book_id": {"$in": data.book_ids}},
+            {"book_id": {"$in": book_ids}},
             {"$set": {"status": "borrowed", "updated_at": now}}
         )
 
@@ -103,7 +137,7 @@ class OrderService:
     @staticmethod
     async def get_orders(
         search: Optional[str] = None,
-        member_id: Optional[str] = None,
+        member_id: Optional[str] = None, 
         status: Optional[str] = None,
         page: int = 1,
         limit: int = 20

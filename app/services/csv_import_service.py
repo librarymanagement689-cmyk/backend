@@ -93,8 +93,17 @@ class CSVImportService:
             if f
         ]
 
-        # title is the only mandatory CSV column
-        if "title" not in fieldnames:
+        required_fields = [
+            "serial_number",
+            "title"
+        ]
+
+        missing_fields = [
+            field for field in required_fields
+            if field not in fieldnames
+        ]
+
+        if missing_fields:
             return {
                 "total_rows": 0,
                 "imported": 0,
@@ -104,7 +113,8 @@ class CSVImportService:
                         "row": 0,
                         "field": "header",
                         "message": (
-                            "CSV missing required header field: title"
+                            f"CSV missing required fields: "
+                            f"{', '.join(missing_fields)}"
                         )
                     }
                 ]
@@ -161,8 +171,11 @@ class CSVImportService:
             # --------------------------------------------------------
 
             title = row_clean.get("title", "").strip()
+            serial_number_raw = row_clean.get("serial_number", "").strip()
 
             author_raw = row_clean.get("author", "").strip()
+            author_alias_raw = row_clean.get("author_alias", "").strip()
+
             price_raw = row_clean.get("price", "").strip()
 
             category_raw = row_clean.get("category", "").strip()
@@ -190,20 +203,40 @@ class CSVImportService:
 
             row_valid = True
 
-            # ========================================================
-            # 5. TITLE VALIDATION
-            # ========================================================
+# ========================================================
+# EMPTY CATALOGUE SLOT
+# ========================================================
+# If there is no title, this serial number represents
+# an empty slot in the physical register.
+# Do not import it and do not report it as an error.
 
             if not title:
+                continue
+
+            # ========================================================
+            # SERIAL NUMBER VALIDATION
+            # ========================================================
+
+            serial_number = None
+
+            if not serial_number_raw:
                 errors.append(
                     {
                         "row": row_num,
-                        "field": "title",
-                        "message": "Title is required"
-                    }
-                )
-
+                        "field": "serial_number",
+                        "message": "Serial number is required for a book"
+                        }
+                    )
                 row_valid = False
+            else:
+                # Serial numbers are catalogue identifiers, not numbers.
+                # Preserve values such as:
+                # 1, 25, 11A, 19A, 16.A
+                serial_number = serial_number_raw
+
+            # ========================================================
+            # 5. TITLE VALIDATION
+            # ========================================================
 
             # ========================================================
             # 6. AUTHOR - OPTIONAL
@@ -300,6 +333,8 @@ class CSVImportService:
                 valid_books.append(
                     {
                         "row_num": row_num,
+                        "serial_number": serial_number,
+                        "author_alias": author_alias_raw if author_alias_raw else None,
                         "title": title,
                         "author": author,
                         "price": price_val,
@@ -357,10 +392,14 @@ class CSVImportService:
                     {
                         "book_id": book_id,
 
+                        "serial_number": book_item["serial_number"],
+
                         # Preserve Unicode exactly as received
                         "title": book_item["title"],
 
                         "author": book_item["author"],
+
+                        "author_alias": book_item["author_alias"],
 
                         # Missing price remains None
                         "price": book_item["price"],
@@ -387,9 +426,8 @@ class CSVImportService:
 
                         "status": "available",
 
-                        # Newly imported books remain hidden
-                        # until explicitly published by admin.
-                        "publish_on_website": False,
+                        # Newly imported books are published by default.
+                        "publish_on_website": True,
 
                         "image_url": (
                             book_item["image_url"]

@@ -17,6 +17,7 @@ class BookService:
             "book_id": book_id,
             "serial_number": data.serial_number,
             "title": data.title.strip(),
+            "author_alias": data.author_alias.strip() if data.author_alias else None,
             "author": data.author.strip() if data.author else None,
             "price": float(data.price) if data.price is not None else None,
             "category": data.category.strip() if data.category else None,
@@ -57,7 +58,17 @@ class BookService:
             query["$or"] = [{"title": regex}, {"author_alias": regex}, {"author": regex}, {"series_name": regex}, {"book_id": regex}]
 
         if serial_number and serial_number.strip():
-            query["serial_number"] = serial_number.strip()
+            serial_term = serial_number.strip()
+
+            if re.fullmatch(r"\d+(?:\.0+)?", serial_term):
+                normalized_serial = serial_term.split(".")[0]
+
+                query["serial_number"] = {
+                    "$regex": rf"^{re.escape(normalized_serial)}(?:\.0+)?$",
+                    "$options": "i"
+                }
+            else:
+                query["serial_number"] = serial_term
         if author and author.strip():
             author_term = re.escape(author.strip())
             author_regex = {"$regex": author_term, "$options": "i"}

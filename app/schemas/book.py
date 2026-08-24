@@ -6,6 +6,7 @@ class BookCreate(BaseModel):
     serial_number: str
     title: str = Field(..., min_length=1)
     author: Optional[str] = None
+    author_alias: Optional[str] = None
     price: Optional[float] = Field(default=None, ge=0.0)
     category: Optional[str] = None
     language: Optional[str] = None
@@ -20,6 +21,7 @@ class BookUpdate(BaseModel):
     serial_number: Optional[str] = None
     title: Optional[str] = None
     author: Optional[str] = None
+    author_alias: Optional[str] = None
     price: Optional[float] = Field(default=None, ge=0.0)
     category: Optional[str] = None
     language: Optional[str] = None
@@ -36,6 +38,7 @@ class BookResponse(BaseModel):
     serial_number: Optional[str] = None
     title: str
     author: Optional[str] = None
+    author_alias: Optional[str] = None
     price: Optional[float] = None
     category: Optional[str] = None
     language: Optional[str] = None

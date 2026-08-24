@@ -6,7 +6,7 @@ from app.schemas.book import (
 from app.services.book_service import BookService
 from app.services.csv_import_service import CSVImportService
 from app.auth.dependencies import get_current_admin
-from app.services.book_service import BookService
+from app.services.csv_export_service import CSVExportService
 
 router = APIRouter(prefix="/api/admin/books", tags=["Admin Books"])
 
@@ -44,6 +44,42 @@ async def get_books(
         limit=limit,
         sort_by=sort_by,
         sort_order=sort_order
+    )
+
+
+@router.get("/export")
+async def export_books_csv(
+    fields: Optional[str] = Query(
+        None,
+        description="Comma-separated fields to export"
+    ),
+    search: Optional[str] = Query(None),
+    author: Optional[str] = Query(None),
+    serial_number: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    language: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    publish_on_website: Optional[bool] = Query(None),
+    current_admin: dict = Depends(get_current_admin)
+):
+    selected_fields = None
+
+    if fields:
+        selected_fields = [
+            field.strip()
+            for field in fields.split(",")
+            if field.strip()
+        ]
+
+    return await CSVExportService.export_books_csv(
+        fields=selected_fields,
+        search=search,
+        serial_number=serial_number,
+        author=author,
+        category=category,
+        language=language,
+        status=status,
+        publish_on_website=publish_on_website
     )
 
 @router.post("/upload-image")

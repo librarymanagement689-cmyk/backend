@@ -94,7 +94,6 @@ class CSVImportService:
         ]
 
         required_fields = [
-            "serial_number",
             "title"
         ]
 
@@ -211,28 +210,20 @@ class CSVImportService:
 # Do not import it and do not report it as an error.
 
             if not title:
-                continue
+                errors.append(
+                    {
+                        "row": row_num,
+                        "field": "title",
+                        "message": "Title is required"
+                    }
+                )
+                row_valid = False
 
             # ========================================================
             # SERIAL NUMBER VALIDATION
             # ========================================================
 
-            serial_number = None
-
-            if not serial_number_raw:
-                errors.append(
-                    {
-                        "row": row_num,
-                        "field": "serial_number",
-                        "message": "Serial number is required for a book"
-                        }
-                    )
-                row_valid = False
-            else:
-                # Serial numbers are catalogue identifiers, not numbers.
-                # Preserve values such as:
-                # 1, 25, 11A, 19A, 16.A
-                serial_number = serial_number_raw
+            serial_number = serial_number_raw if serial_number_raw else None
 
             # ========================================================
             # 5. TITLE VALIDATION
@@ -375,11 +366,38 @@ class CSVImportService:
 
             books_col = get_books_collection()
 
+            # --- Calculate Author Serial Numbers ---
+            unique_authors = list({
+                b["author"] for b in valid_books if b.get("author")
+            })
+            
+            author_counts = {}
+            if unique_authors:
+                pipeline = [
+                    {"$match": {"author": {"$in": unique_authors}}},
+                    {"$group": {"_id": "$author", "count": {"$sum": 1}}}
+                ]
+                cursor = books_col.aggregate(pipeline)
+                async for doc in cursor:
+                    author_counts[doc["_id"]] = doc["count"]
+                
+                # Initialize missing authors to 0
+                for auth in unique_authors:
+                    if auth not in author_counts:
+                        author_counts[auth] = 0
+
             now = current_utc_datetime()
 
             documents_to_insert = []
 
             for book_item in valid_books:
+
+                # Auto-assign serial number based on author book count
+                author_name = book_item.get("author")
+                if author_name:
+                    author_counts[author_name] += 1
+                    book_item["serial_number"] = str(author_counts[author_name])
+
 
                 # Generate unique LIB-XXXXX ID
                 book_id = await generate_unique_id(

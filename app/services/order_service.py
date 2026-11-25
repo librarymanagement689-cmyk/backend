@@ -3,11 +3,11 @@ import math
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date, timedelta
 from fastapi import HTTPException
-from app.database import get_orders_collection, get_books_collection, get_members_collection
+from app.database import get_orders_collection, get_books_collection, get_members_collection, get_subscriptions_collection
 from app.schemas.order import OrderCreate, ReturnBooksRequest
 from app.services.email_service import EmailService
 from app.config import settings
-from app.utils.helpers import generate_unique_id, current_utc_datetime, parse_date
+from app.utils.helpers import generate_unique_id, current_utc_datetime, parse_date, clean_doc, clean_docs
 
 class OrderService:
     @staticmethod
@@ -15,6 +15,7 @@ class OrderService:
         members_col = get_members_collection()
         books_col = get_books_collection()
         orders_col = get_orders_collection()
+        subs_col = get_subscriptions_collection()
 
         # 1. Verify Member
         member = await members_col.find_one({"member_id": data.member_id})
@@ -24,6 +25,14 @@ class OrderService:
         if member.get("status") != "active":
             raise HTTPException(status_code=400, detail=f"Member {data.member_id} does not have an active subscription (Status: {member.get('status')})")
 
+        member_name = member.get("name")
+        sub_name = None
+        sub_id = member.get("subscription_type_id")
+        if sub_id:
+            sub = await subs_col.find_one({"subscription_id": sub_id})
+            if sub:
+                sub_name = sub.get("name")
+
         # Validate dates
         b_date = parse_date(data.borrowed_date)
         d_date = parse_date(data.due_date)
@@ -31,34 +40,57 @@ class OrderService:
             raise HTTPException(status_code=400, detail="Due date cannot be before borrowed date")
 
         # 2. Verify and Snapshot Books
-
-        if not data.items:
+        if data.items:
+            book_ids = [item.book_id for item in data.items]
+        elif data.book_ids:
+            book_ids = data.book_ids
+        else:
             raise HTTPException(
                 status_code=400,
                 detail="At least one book must be selected for an order"
             )
 
-        # Get all book IDs from the request
-        book_ids = [item.book_id for item in data.items]
+        if not book_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one book must be selected for an order"
+            )
 
-        # Prevent the same book from being added twice
+        # Prevent the same book from being added twice in the same order
         if len(book_ids) != len(set(book_ids)):
             raise HTTPException(
                 status_code=400,
                 detail="Duplicate books detected in the order request"
             )
 
+        # Prevent borrowing books the member has previously taken (past orders or recorded history)
+        past_orders = await orders_col.find({"member_id": data.member_id}).to_list(length=1000)
+        previously_borrowed_ids = set()
+        for p_ord in past_orders:
+            for itm in p_ord.get("items", []):
+                if itm.get("book_id"):
+                    previously_borrowed_ids.add(itm["book_id"])
+
+        for pb in (member.get("past_books") or []):
+            if isinstance(pb, dict) and pb.get("book_id"):
+                previously_borrowed_ids.add(pb["book_id"])
+            elif isinstance(pb, str):
+                previously_borrowed_ids.add(pb)
+
+        previously_taken = [bid for bid in book_ids if bid in previously_borrowed_ids]
+        if previously_taken:
+            dup_book = await books_col.find_one({"book_id": previously_taken[0]})
+            dup_title = dup_book.get("title", previously_taken[0]) if dup_book else previously_taken[0]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Member '{member_name}' has already borrowed '{dup_title}' ({previously_taken[0]}) previously. Duplicate borrowing of previously taken books is not allowed."
+            )
+
         order_items = []
-        subtotal = 0.0
+        total_mrp = 0.0
 
-        for requested_item in data.items:
-
-            book_id = requested_item.book_id
-
-            # This is the amount manually entered by the admin
-            lending_amount = float(requested_item.lending_amount)
-
-    # Get the actual book from MongoDB
+        for book_id in book_ids:
+            # Get the actual book from MongoDB
             book = await books_col.find_one({"book_id": book_id})
 
             if not book:
@@ -75,27 +107,26 @@ class OrderService:
                         f"(Status: {book.get('status')})"
                 )
 
-            # This is the actual/master price stored on the book.
-            # We DO NOT use this to calculate the lending amount.
+            # Actual/master price (MRP) stored on the book
             current_price = float(book.get("price") or 0.0)
+            total_mrp += current_price
 
-            # Subtotal is based on the amount entered by the admin
-            subtotal += lending_amount
+            # Item lending amount snapshot (12% of individual book MRP)
+            item_lending = round(current_price * 0.12, 2)
 
-            # Save both prices separately
             order_items.append({
                 "book_id": book.get("book_id"),
                 "title": book.get("title"),
-
-                # Actual price of the book
                 "price": current_price,
+                "lending_amount": item_lending,
+                "returned": False,
+                "returned_date": None
+            })
 
-        # Amount charged for lending this book
-        "lending_amount": lending_amount,
-
-        "returned": False,
-        "returned_date": None
-    })
+        # Calculate rental charge as 12% of the combined total MRP of all books
+        total_mrp = round(total_mrp, 2)
+        rental_amount = round(total_mrp * 0.12, 2)
+        subtotal = rental_amount
 
         # 3. Generate unique order_id & create order
         order_id = await generate_unique_id("order_id", "ORD", 5)
@@ -110,11 +141,15 @@ class OrderService:
         order_doc = {
             "order_id": order_id,
             "member_id": data.member_id,
+            "member_name": member_name,
+            "subscription_name": sub_name,
             "items": order_items,
             "borrowed_date": data.borrowed_date,
             "due_date": data.due_date,
             "returned_date": None,
-            "subtotal": round(subtotal, 2),
+            "total_mrp": total_mrp,
+            "rental_amount": rental_amount,
+            "subtotal": subtotal,
             "amount_paid": float(data.amount_paid),
             "status": initial_status,
             "reminder_sent": False,
@@ -132,7 +167,7 @@ class OrderService:
             {"$set": {"status": "borrowed", "updated_at": now}}
         )
 
-        return order_doc
+        return clean_doc(order_doc)
 
     @staticmethod
     async def get_orders(
@@ -156,6 +191,7 @@ class OrderService:
             query["$or"] = [
                 {"order_id": regex},
                 {"member_id": regex},
+                {"member_name": regex},
                 {"items.title": regex},
                 {"items.book_id": regex}
             ]
@@ -169,10 +205,37 @@ class OrderService:
         items = await cursor.to_list(length=limit)
 
         today_str = date.today().isoformat()
-        # Compute dynamic status for active orders past due date
-        for item in items:
-            if item.get("status") == "active" and item.get("due_date") < today_str:
-                item["status"] = "overdue"
+        
+        # Batch fetch member details for returned orders
+        member_ids = list({item["member_id"] for item in items if "member_id" in item})
+        if member_ids:
+            members_col = get_members_collection()
+            subs_col = get_subscriptions_collection()
+
+            members_list = await members_col.find({"member_id": {"$in": member_ids}}).to_list(length=len(member_ids))
+            member_map = {m["member_id"]: m for m in members_list}
+
+            sub_ids = list({m.get("subscription_type_id") for m in members_list if m.get("subscription_type_id")})
+            sub_map = {}
+            if sub_ids:
+                subs_list = await subs_col.find({"subscription_id": {"$in": sub_ids}}).to_list(length=len(sub_ids))
+                sub_map = {s["subscription_id"]: s.get("name") for s in subs_list}
+
+            for item in items:
+                if item.get("status") == "active" and item.get("due_date") < today_str:
+                    item["status"] = "overdue"
+
+                mem = member_map.get(item.get("member_id"))
+                if mem:
+                    if not item.get("member_name"):
+                        item["member_name"] = mem.get("name")
+                    if not item.get("subscription_name"):
+                        sub_id = mem.get("subscription_type_id")
+                        item["subscription_name"] = sub_map.get(sub_id) or "Standard Plan"
+        else:
+            for item in items:
+                if item.get("status") == "active" and item.get("due_date") < today_str:
+                    item["status"] = "overdue"
 
         total_pages = math.ceil(total / limit) if total > 0 else 1
 
@@ -181,7 +244,7 @@ class OrderService:
             "page": page,
             "limit": limit,
             "total_pages": total_pages,
-            "items": items
+            "items": clean_docs(items)
         }
 
     @staticmethod
@@ -192,7 +255,7 @@ class OrderService:
             today_str = date.today().isoformat()
             if order.get("status") == "active" and order.get("due_date") < today_str:
                 order["status"] = "overdue"
-        return order
+        return clean_doc(order)
 
     @staticmethod
     async def return_books(order_id: str, request: ReturnBooksRequest) -> dict:
@@ -257,7 +320,8 @@ class OrderService:
             }}
         )
 
-        return await orders_col.find_one({"order_id": order_id})
+        updated_order = await orders_col.find_one({"order_id": order_id})
+        return clean_doc(updated_order)
 
     @staticmethod
     async def send_due_date_reminders() -> Dict[str, Any]:

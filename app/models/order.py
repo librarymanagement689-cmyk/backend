@@ -17,6 +17,8 @@ class OrderModel(BaseModel):
     borrowed_date: str  # Format: YYYY-MM-DD
     due_date: str       # Format: YYYY-MM-DD
     returned_date: Optional[str] = None
+    total_mrp: float = Field(default=0.0, ge=0.0)
+    rental_amount: float = Field(default=0.0, ge=0.0)
     subtotal: float = Field(ge=0.0)
     amount_paid: float = Field(ge=0.0)
     status: Literal["active", "returned", "overdue", "cancelled"] = "active"

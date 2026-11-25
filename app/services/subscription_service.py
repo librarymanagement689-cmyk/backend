@@ -2,7 +2,7 @@ from typing import Optional, List
 from fastapi import HTTPException
 from app.database import get_subscriptions_collection
 from app.schemas.subscription import SubscriptionCreate, SubscriptionUpdate
-from app.utils.helpers import generate_unique_id, current_utc_datetime
+from app.utils.helpers import generate_unique_id, current_utc_datetime, clean_doc, clean_docs
 
 class SubscriptionService:
     @staticmethod
@@ -21,19 +21,21 @@ class SubscriptionService:
             "updated_at": now
         }
         await subs_col.insert_one(sub_doc)
-        return sub_doc
+        return clean_doc(sub_doc)
 
     @staticmethod
     async def get_subscriptions(active_only: bool = False) -> List[dict]:
         subs_col = get_subscriptions_collection()
         query = {"is_active": True} if active_only else {}
         cursor = subs_col.find(query).sort("created_at", 1)
-        return await cursor.to_list(length=100)
+        items = await cursor.to_list(length=100)
+        return clean_docs(items)
 
     @staticmethod
     async def get_subscription_by_id(subscription_id: str) -> Optional[dict]:
         subs_col = get_subscriptions_collection()
-        return await subs_col.find_one({"subscription_id": subscription_id})
+        doc = await subs_col.find_one({"subscription_id": subscription_id})
+        return clean_doc(doc)
 
     @staticmethod
     async def update_subscription(subscription_id: str, data: SubscriptionUpdate) -> dict:
@@ -44,11 +46,12 @@ class SubscriptionService:
 
         update_data = data.model_dump(exclude_unset=True)
         if not update_data:
-            return existing
+            return clean_doc(existing)
 
         update_data["updated_at"] = current_utc_datetime()
         await subs_col.update_one({"subscription_id": subscription_id}, {"$set": update_data})
-        return await subs_col.find_one({"subscription_id": subscription_id})
+        updated = await subs_col.find_one({"subscription_id": subscription_id})
+        return clean_doc(updated)
 
     @staticmethod
     async def delete_subscription(subscription_id: str) -> bool:

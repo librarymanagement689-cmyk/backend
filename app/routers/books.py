@@ -1,9 +1,12 @@
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, File, UploadFile, HTTPException, status
 from app.schemas.book import (
     BookCreate, BookUpdate, BookResponse, BookPaginatedResponse, CSVImportSummaryResponse
 )
 from app.services.book_service import BookService
+from app.database import get_books_collection
+from fastapi.responses import StreamingResponse
+from app.services.word_export_service import WordExportService
 from app.services.csv_import_service import CSVImportService
 from app.auth.dependencies import get_current_admin
 from app.services.csv_export_service import CSVExportService
@@ -46,6 +49,9 @@ async def get_books(
         sort_order=sort_order
     )
 
+@router.get("/authors", response_model=List[str])
+async def get_authors(current_admin: dict = Depends(get_current_admin)):
+    return await BookService.get_authors()
 
 @router.get("/export")
 async def export_books_csv(
@@ -80,6 +86,25 @@ async def export_books_csv(
         language=language,
         status=status,
         publish_on_website=publish_on_website
+    )
+
+
+@router.get("/export-word")
+async def export_books_word(
+    current_admin: dict = Depends(get_current_admin)
+):
+    books_col = get_books_collection()
+
+    books = await books_col.find({}).to_list(length=None)
+
+    document = await WordExportService.generate_catalogue(books)
+
+    return StreamingResponse(
+        document,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": 'attachment; filename="library_catalogue.docx"'
+        }
     )
 
 @router.post("/upload-image")

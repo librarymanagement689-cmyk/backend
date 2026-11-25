@@ -12,6 +12,9 @@ class Database:
 db_instance = Database()
 
 async def connect_to_mongo():
+    if db_instance.db is not None:
+        logger.info("MongoDB connection already initialized.")
+        return
     logger.info(f"Connecting to MongoDB at {settings.MONGODB_URI}...")
     try:
         client = AsyncIOMotorClient(settings.MONGODB_URI, serverSelectionTimeoutMS=5000)

@@ -32,3 +32,17 @@ async def test_subscription_and_member_flow(async_client, admin_auth_headers):
     mem_data = mem_res.json()
     assert mem_data["member_id"] == "MEM-00001"
     assert mem_data["email"] == "ravi.kumar@example.com"
+
+    # 3. Update Member with empty string dates and ISO strings (verifying fix for 422 error)
+    update_payload = {
+        "discontinued_date": "",
+        "security_deposit_returned_date": "",
+        "join_date": "2026-09-13T00:00:00.000Z"
+    }
+    update_res = await async_client.put(f"/api/admin/members/{mem_data['member_id']}", json=update_payload, headers=admin_auth_headers)
+    assert update_res.status_code == 200
+    updated_data = update_res.json()
+    assert updated_data["discontinued_date"] is None
+    assert updated_data["security_deposit_returned_date"] is None
+    assert updated_data["join_date"] == "2026-09-13"
+

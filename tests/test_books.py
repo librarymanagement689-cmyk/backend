@@ -76,7 +76,7 @@ async def test_csv_import_with_partial_records_and_optional_fields(async_client,
         "November 9,Colleen Hoover,,English Fiction,English,,\n"
         "Some Tamil Book,,,Tamil Spiritual,Tamil,,\n"
         "Some Book,,,,,,\n"
-        "தேவ ரகசியம்,காஞ்சி பரமாச்சாரியார்,300,Philosophy,Tamil,,\n"
+        "தேவ ரகசியம்,காஞ்சி பரமாச்சாரியார்,300,Philosophy,Tamil,,,\n"
         "Diary of a Wimpy Kid,Jeff Kinney,499.50,Children,English,Wimpy Kid,1,17\n"
     )
     files = {"file": ("books.csv", csv_content.encode("utf-8"), "text/csv")}
@@ -112,7 +112,7 @@ async def test_csv_import_validation_errors(async_client, admin_auth_headers):
         "title,author,price,category,language\n"
         ",Colleen Hoover,250,Fiction,English\n"  # Missing title (Invalid)
         "Invalid Price Book,Author,abc,Category,Language\n"  # Invalid price (Invalid)
-        "Rupee Price Book,Author,₹250,Category,Language\n"  # Invalid price (Invalid)
+        "Rupee Price Book,Author,INVALID_PRICE_XYZ,Category,Language\n"  # Invalid price (Invalid)
         "Valid Book,Author,150,Category,Language\n"  # Valid
     )
     files = {"file": ("books.csv", csv_content.encode("utf-8"), "text/csv")}

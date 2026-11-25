@@ -5,15 +5,16 @@ from pydantic import BaseModel, Field
 
 class OrderCreateItem(BaseModel):
     book_id: str = Field(..., min_length=1)
-    lending_amount: float = Field(..., ge=0.0)
+    lending_amount: Optional[float] = Field(default=0.0, ge=0.0)
 
 
 class OrderCreate(BaseModel):
     member_id: str = Field(..., min_length=1)
-    items: List[OrderCreateItem] = Field(..., min_length=1)
+    items: Optional[List[OrderCreateItem]] = None
+    book_ids: Optional[List[str]] = None
     borrowed_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     due_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
-    amount_paid: float = Field(..., ge=0.0)
+    amount_paid: float = Field(default=0.0, ge=0.0)
 
 
 class OrderItemResponse(BaseModel):
@@ -28,10 +29,14 @@ class OrderItemResponse(BaseModel):
 class OrderResponse(BaseModel):
     order_id: str
     member_id: str
+    member_name: Optional[str] = None
+    subscription_name: Optional[str] = None
     items: List[OrderItemResponse]
     borrowed_date: str
     due_date: str
     returned_date: Optional[str] = None
+    total_mrp: float = 0.0
+    rental_amount: float = 0.0
     subtotal: float
     amount_paid: float
     status: Literal["active", "returned", "overdue", "cancelled"]

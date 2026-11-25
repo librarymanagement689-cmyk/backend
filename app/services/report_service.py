@@ -6,6 +6,8 @@ from app.database import (
     get_orders_collection,
 )
 
+from app.utils.helpers import clean_doc, clean_docs
+
 class ReportService:
     @staticmethod
     async def get_dashboard_stats() -> Dict[str, Any]:
@@ -73,7 +75,7 @@ class ReportService:
             "date": target_date,
             "total_orders": total_orders,
             "collection": round(collection, 2),
-            "orders": orders
+            "orders": clean_docs(orders)
         }
 
     @staticmethod

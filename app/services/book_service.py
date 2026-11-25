@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from app.database import get_books_collection, get_orders_collection, get_members_collection
 from app.schemas.book import BookCreate, BookUpdate
-from app.utils.helpers import generate_unique_id, current_utc_datetime
+from app.utils.helpers import generate_unique_id, current_utc_datetime, clean_doc, clean_docs
 
 class BookService:
     @staticmethod
@@ -33,7 +33,13 @@ class BookService:
             "updated_at": now,
         }
         await books_col.insert_one(book_doc)
-        return book_doc
+        return clean_doc(book_doc)
+
+    @staticmethod
+    async def get_authors() -> List[str]:
+        books_col = get_books_collection()
+        authors = await books_col.distinct("author")
+        return sorted(list({a.strip() for a in authors if a and a.strip()}))
 
     @staticmethod
     async def get_books(
@@ -105,13 +111,14 @@ class BookService:
             "page": page,
             "limit": limit,
             "total_pages": total_pages,
-            "items": items
+            "items": clean_docs(items)
         }
 
     @staticmethod
     async def get_book_by_id(book_id: str) -> Optional[dict]:
         books_col = get_books_collection()
-        return await books_col.find_one({"book_id": book_id})
+        doc = await books_col.find_one({"book_id": book_id})
+        return clean_doc(doc)
 
     @staticmethod
     async def update_book(book_id: str, data: BookUpdate) -> dict:
@@ -122,11 +129,12 @@ class BookService:
 
         update_data = data.model_dump(exclude_unset=True)
         if not update_data:
-            return existing
+            return clean_doc(existing)
 
         update_data["updated_at"] = current_utc_datetime()
         await books_col.update_one({"book_id": book_id}, {"$set": update_data})
-        return await books_col.find_one({"book_id": book_id})
+        updated = await books_col.find_one({"book_id": book_id})
+        return clean_doc(updated)
 
     @staticmethod
     async def delete_book(book_id: str) -> bool:
@@ -188,7 +196,7 @@ class BookService:
                     "due_date": ord_doc.get("due_date")
                 }
 
-        return {
+        res = {
             "book": {
                 "book_id": book.get("book_id"),
                 "title": book.get("title"),
@@ -201,3 +209,4 @@ class BookService:
             "total_amount_collected": total_amount_collected,
             "history": history
         }
+        return clean_doc(res)
